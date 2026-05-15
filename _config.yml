@@ -23,6 +23,10 @@ navs:
     label: jump1
 
   -
+    href: /pages/Word表格边框隐藏操作手册.html
+    label: Word教程
+
+  -
     href: /publications/
     label: Publications
 

@@ -1,0 +1,53 @@
+name: Claude Auto Fix Build
+
+# 推送到 master 时触发；Jekyll 构建失败则自动修复
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write   # 允许提交修复
+
+jobs:
+  build-and-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Jekyll 基于 Ruby，需安装 Ruby 环境
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true   # 自动 bundle install 并缓存 gems
+
+      - name: Build (Jekyll)
+        id: build
+        run: |
+          # 构建失败时不直接退出，记录日志和状态供后续步骤判断
+          bundle exec jekyll build > build.log 2>&1 && echo "failed=false" >> $GITHUB_OUTPUT || echo "failed=true" >> $GITHUB_OUTPUT
+          cat build.log
+
+      - name: Install Claude Code
+        if: steps.build.outputs.failed == 'true'
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Claude auto-fix
+        if: steps.build.outputs.failed == 'true'
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
+        run: |
+          claude -p "这是一个 Jekyll（GitHub Pages）站点。读取项目根目录的 build.log，分析导致 jekyll build 失败的错误（常见：_config.yml 语法、Liquid 模板错误、front matter 格式、缺失文件链接），并修复对应文件。修复后不要改动无关内容。" \
+            --allowedTools "Read,Edit,Bash(cat:*),Bash(bundle exec jekyll build:*)" \
+            --max-turns 20 || true
+
+      - name: Commit fixes
+        if: steps.build.outputs.failed == 'true'
+        run: |
+          git config user.name "claude-bot"
+          git config user.email "claude-bot@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: auto-fix Jekyll build errors by Claude" && git push || echo "无改动可提交"

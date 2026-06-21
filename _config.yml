@@ -40,3 +40,10 @@ navs:
 
 title: Gamma 2022
 theme: jekyll-theme-architect
+
+# 站点地址与仓库信息
+# 用户主页（user site）部署在根路径，故 baseurl 为空
+# repository 供 jekyll-github-metadata 解析（生产构建必需，否则本地报 No repo name found）
+url: "https://newcoder01n.github.io"
+baseurl: ""
+repository: newcoder01n/newcoder01n.github.io

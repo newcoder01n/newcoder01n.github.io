@@ -1,0 +1,64 @@
+name: Claude Code Review
+
+# PR 创建或更新时触发；仅当 Markdown / 配置文件变更时才跑审查
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - '**/*.md'          # 所有 Markdown 内容
+      - '_config.yml'      # Jekyll 主配置
+      - '**/*.yml'         # 其他 yml 配置
+      - '**/*.yaml'
+      - 'Gemfile'          # 依赖声明
+
+permissions:
+  contents: read
+  pull-requests: write   # 允许写 PR 评论
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 拉全部历史，才能正确 diff
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Run Claude Review
+        env:
+          # 以下三个值来自 GitHub Secrets，对应本地 settings.json 的 env 配置
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
+        run: |
+          # 取出本次 PR 的 diff
+          git diff origin/${{ github.base_ref }}...HEAD > /tmp/pr.diff
+
+          # headless 模式执行审查，结果写入文件
+          claude -p "请审查 /tmp/pr.diff 中的代码变更，重点关注：安全漏洞、明显 bug、错误处理缺失。用中文输出 Markdown，简洁列出问题和严重等级（CRITICAL/HIGH/MEDIUM）。如果没问题就回复 '✅ 未发现明显问题'。" \
+            --allowedTools "Read,Bash(cat:*),Bash(git diff:*)" \
+            --max-turns 15 \
+            > /tmp/review.md 2>&1 || true
+
+          cat /tmp/review.md
+
+      - name: Post review as PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('/tmp/review.md', 'utf8');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## 🤖 Claude 代码审查\n\n${body}`
+            });

@@ -1,9 +1,12 @@
 name: Claude Auto Fix Build
 
-# 推送到 master 时触发；Jekyll 构建失败则自动修复
+# 仅当 GitHub Pages 的构建部署（pages-build-deployment）失败后才触发。
+# 构建成功时，本 workflow 的 job 会被下面的 if 条件整体跳过——连 Ruby 都不装，成本接近 0。
 on:
-  push:
-    branches: [master]
+  workflow_run:
+    workflows: ["pages-build-deployment"]   # 监听 Pages 默认构建部署
+    types: [completed]
+  workflow_dispatch:                         # 也支持手动触发排查
 
 permissions:
   contents: write   # 允许提交修复
@@ -11,11 +14,18 @@ permissions:
 jobs:
   build-and-fix:
     runs-on: ubuntu-latest
+    # 关键开关：只有「手动触发」或「被监听的 Pages 构建失败」时才进入这个 job。
+    # Pages 构建成功 → 条件为 false → 整个 job 跳过，不消耗构建资源。
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          github.event.workflow_run.conclusion == 'failure' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: master   # workflow_run 场景下显式 checkout master，确保修的是发布分支
 
-      # Jekyll 基于 Ruby，需安装 Ruby 环境
+      # Jekyll 基于 Ruby，需安装 Ruby 环境（仅在 job 真正运行时才执行到这里）
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:
@@ -25,7 +35,7 @@ jobs:
       - name: Build (Jekyll)
         id: build
         run: |
-          # 构建失败时不直接退出，记录日志和状态供后续步骤判断
+          # 复现一次构建以拿到错误日志（供 Claude 分析）
           bundle exec jekyll build > build.log 2>&1 && echo "failed=false" >> $GITHUB_OUTPUT || echo "failed=true" >> $GITHUB_OUTPUT
           cat build.log
 
